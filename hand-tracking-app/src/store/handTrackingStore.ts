@@ -43,6 +43,10 @@ const initialInteraction: InteractionState = {
   gestureType: GestureType.NONE,
   handsInFrame: 0,
   isInteracting: false,
+  effectMode: 'face-scan',
+  pinchProgress: 0,
+  hologramIntensity: 0,
+  anchor: { x: 0.5, y: 0.5, z: 0 },
 };
 
 export const useHandTrackingStore = create<HandTrackingStore>((set) => ({

@@ -1,6 +1,14 @@
 import * as THREE from 'three';
 
-const PARTICLE_COLORS = [0x00ff88, 0x00ffff, 0xff00ff, 0xffff00];
+// Per-particle RGB palette matching reference: white, pink, purple, orange, neon-green, cyan
+const PALETTE: [number, number, number][] = [
+  [1.0, 1.0, 1.0],   // white
+  [1.0, 0.18, 0.82],  // hot pink
+  [0.6, 0.18, 1.0],   // purple
+  [1.0, 0.58, 0.0],   // orange
+  [0.0, 1.0, 0.53],   // neon green
+  [0.0, 0.95, 1.0],   // cyan
+];
 
 interface ParticleData {
   x: number;
@@ -10,27 +18,34 @@ interface ParticleData {
   vy: number;
   vz: number;
   life: number;
+  r: number;
+  g: number;
+  b: number;
 }
 
 export class ParticleSystem {
   private particles: ParticleData[] = [];
   private geometry: THREE.BufferGeometry;
-  private material: THREE.PointsMaterial;
+  public material: THREE.PointsMaterial;
   public mesh: THREE.Points;
   private maxParticles: number;
   private positions: Float32Array;
+  private colors: Float32Array;
 
   constructor(maxParticles: number = 200) {
     this.maxParticles = maxParticles;
 
     this.positions = new Float32Array(maxParticles * 3);
+    this.colors = new Float32Array(maxParticles * 3);
+
     this.geometry = new THREE.BufferGeometry();
     this.geometry.setAttribute('position', new THREE.BufferAttribute(this.positions, 3));
+    this.geometry.setAttribute('color', new THREE.BufferAttribute(this.colors, 3));
 
     this.material = new THREE.PointsMaterial({
-      size: 0.008,
+      size: 0.016,
       sizeAttenuation: true,
-      color: 0x00ff88,
+      vertexColors: true,
       transparent: true,
       opacity: 0.9,
       blending: THREE.AdditiveBlending,
@@ -46,14 +61,19 @@ export class ParticleSystem {
         this.particles.shift();
       }
 
+      const [r, g, b] = PALETTE[Math.floor(Math.random() * PALETTE.length)];
+
       this.particles.push({
         x: position.x,
         y: position.y,
         z: position.z,
-        vx: (Math.random() - 0.5) * 0.02,
-        vy: (Math.random() - 0.5) * 0.02,
-        vz: (Math.random() - 0.5) * 0.01,
-        life: 1.5 + Math.random() * 1.5,
+        vx: (Math.random() - 0.5) * 0.022,
+        vy: (Math.random() - 0.5) * 0.022,
+        vz: (Math.random() - 0.5) * 0.012,
+        life: 1.8 + Math.random() * 1.8,
+        r,
+        g,
+        b,
       });
     }
   }
@@ -63,28 +83,26 @@ export class ParticleSystem {
       p.x += p.vx * dt;
       p.y += p.vy * dt;
       p.z += p.vz * dt;
-      p.vy -= 0.002 * dt; // gravity
+      p.vy -= 0.003 * dt; // gentle gravity
       p.life -= dt;
       return p.life > 0;
     });
 
-    // Update buffer
     for (let i = 0; i < this.maxParticles; i++) {
       if (i < this.particles.length) {
-        this.positions[i * 3] = this.particles[i].x;
-        this.positions[i * 3 + 1] = this.particles[i].y;
-        this.positions[i * 3 + 2] = this.particles[i].z;
+        const p = this.particles[i];
+        this.positions[i * 3] = p.x;
+        this.positions[i * 3 + 1] = p.y;
+        this.positions[i * 3 + 2] = p.z;
+        this.colors[i * 3] = p.r;
+        this.colors[i * 3 + 1] = p.g;
+        this.colors[i * 3 + 2] = p.b;
       } else {
-        this.positions[i * 3] = 0;
-        this.positions[i * 3 + 1] = 0;
-        this.positions[i * 3 + 2] = -999; // offscreen
+        this.positions[i * 3 + 2] = -999; // push offscreen
       }
     }
     this.geometry.attributes.position.needsUpdate = true;
-
-    // Cycle color
-    const colorIdx = Math.floor(performance.now() / 500) % PARTICLE_COLORS.length;
-    this.material.color.setHex(PARTICLE_COLORS[colorIdx]);
+    this.geometry.attributes.color.needsUpdate = true;
   }
 
   dispose() {
@@ -92,3 +110,4 @@ export class ParticleSystem {
     this.material.dispose();
   }
 }
+

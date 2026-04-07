@@ -1,11 +1,10 @@
 import { useEffect, useRef, useCallback } from 'react';
 import {
-  FaceDetector,
   FilesetResolver,
   HandLandmarker,
 } from '@mediapipe/tasks-vision';
 import { useHandTrackingStore } from '../store/handTrackingStore';
-import type { DetectionResult, Face, Hand } from '../types';
+import type { DetectionResult, Hand } from '../types';
 
 const DETECTOR_INIT_TIMEOUT_MS = 10000;
 const CAMERA_START_TIMEOUT_MS = 10000;
@@ -13,11 +12,10 @@ const WASM_ROOT =
   'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.18/wasm';
 const HAND_MODEL_ASSET =
   'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
-const FACE_MODEL_ASSET =
-  'https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite';
 
 export function useHandTracking() {
   const {
+    reset,
     setMode,
     setErrorMessage,
     updateHands,
@@ -27,24 +25,44 @@ export function useHandTracking() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const handLandmarkerRef = useRef<HandLandmarker | null>(null);
-  const faceDetectorRef = useRef<FaceDetector | null>(null);
   const rafRef = useRef<number>(0);
   const lastDetectionRef = useRef<number>(0);
   const frameCountRef = useRef(0);
   const fpsWindowStartRef = useRef(0);
   const fpsRef = useRef(0);
 
+  const waitForVideoElement = useCallback(async () => {
+    if (videoRef.current) return videoRef.current;
+
+    return await new Promise<HTMLVideoElement>((resolve, reject) => {
+      const startedAt = performance.now();
+
+      const tick = () => {
+        if (videoRef.current) {
+          resolve(videoRef.current);
+          return;
+        }
+
+        if (performance.now() - startedAt > 3000) {
+          reject(new Error('Camera element was not mounted'));
+          return;
+        }
+
+        requestAnimationFrame(tick);
+      };
+
+      tick();
+    });
+  }, []);
+
   const cleanup = useCallback(() => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
     handLandmarkerRef.current?.close();
     handLandmarkerRef.current = null;
-    faceDetectorRef.current?.close();
-    faceDetectorRef.current = null;
     if (videoRef.current) {
       videoRef.current.pause();
       videoRef.current.srcObject = null;
     }
-    videoRef.current = null;
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
   }, []);
@@ -62,28 +80,17 @@ export function useHandTracking() {
           },
           runningMode: 'VIDEO',
           numHands: 2,
-          minHandDetectionConfidence: 0.5,
-          minTrackingConfidence: 0.5,
-        });
-
-        const faceDetector = await FaceDetector.createFromOptions(vision, {
-          baseOptions: {
-            modelAssetPath: FACE_MODEL_ASSET,
-            delegate,
-          },
-          runningMode: 'VIDEO',
-          minDetectionConfidence: 0.5,
+          minHandDetectionConfidence: 0.6,
+          minTrackingConfidence: 0.6,
+          minHandPresenceConfidence: 0.6,
         });
 
         handLandmarkerRef.current = handLandmarker;
-        faceDetectorRef.current = faceDetector;
         return;
       } catch (error) {
         lastError = error;
         handLandmarkerRef.current?.close();
         handLandmarkerRef.current = null;
-        faceDetectorRef.current?.close();
-        faceDetectorRef.current = null;
       }
     }
 
@@ -95,7 +102,7 @@ export function useHandTracking() {
     let processing = false;
 
     const sendFrames = () => {
-      if (cancelled || !videoRef.current || !handLandmarkerRef.current || !faceDetectorRef.current) {
+      if (cancelled || !videoRef.current || !handLandmarkerRef.current) {
         return;
       }
 
@@ -106,7 +113,6 @@ export function useHandTracking() {
           const start = performance.now();
           const timestamp = start;
           const handResults = handLandmarkerRef.current.detectForVideo(videoRef.current, timestamp);
-          const faceResults = faceDetectorRef.current.detectForVideo(videoRef.current, timestamp);
           const latency = performance.now() - start;
 
           if (!fpsWindowStartRef.current) fpsWindowStartRef.current = start;
@@ -131,24 +137,9 @@ export function useHandTracking() {
             confidence: handResults.handedness?.[index]?.[0]?.score ?? 0,
           }));
 
-          let face: Face | null = null;
-          const detection = faceResults.detections?.[0];
-          const boundingBox = detection?.boundingBox;
-          if (boundingBox) {
-            face = {
-              boundingBox: {
-                xMin: boundingBox.originX,
-                yMin: boundingBox.originY,
-                width: boundingBox.width,
-                height: boundingBox.height,
-              },
-              confidence: detection?.categories?.[0]?.score ?? 0,
-            };
-          }
-
           const result: DetectionResult = {
             hands,
-            face,
+            face: null,
             fps: fpsRef.current,
             latency,
             timestamp,
@@ -176,6 +167,7 @@ export function useHandTracking() {
     };
 
     const start = async () => {
+      reset();
       setMode('permission-prompt');
       setErrorMessage(null);
 
@@ -199,6 +191,7 @@ export function useHandTracking() {
         ]);
       } catch (error) {
         console.error('Camera startup failed', error);
+        reset();
         setErrorMessage(error instanceof Error ? error.message : String(error));
         if (!cancelled) setMode('camera-error');
         return;
@@ -214,14 +207,27 @@ export function useHandTracking() {
       setErrorMessage(null);
 
       try {
-        const video = document.createElement('video');
+        const video = await waitForVideoElement();
+
         video.srcObject = stream;
         video.autoplay = true;
         video.playsInline = true;
         video.muted = true;
+        await new Promise<void>((resolve) => {
+          if (video.readyState >= HTMLMediaElement.HAVE_METADATA) {
+            resolve();
+            return;
+          }
+
+          const handleLoadedMetadata = () => {
+            video.removeEventListener('loadedmetadata', handleLoadedMetadata);
+            resolve();
+          };
+
+          video.addEventListener('loadedmetadata', handleLoadedMetadata, { once: true });
+        });
         await video.play();
         if (cancelled) return;
-        videoRef.current = video;
 
         await Promise.race([
           initVisionTasks(),
@@ -240,9 +246,11 @@ export function useHandTracking() {
         sendFrames();
       } catch (error) {
         console.error('Detector initialization failed', error);
+        updateHands([]);
+        updateFace(null);
+        updateMetrics(0, 0);
         setErrorMessage(error instanceof Error ? error.message : String(error));
         if (!cancelled) setMode('fatal-error');
-        cleanup();
       }
     };
 
@@ -261,8 +269,7 @@ export function useHandTracking() {
         setMode('paused');
       } else if (
         videoRef.current &&
-        handLandmarkerRef.current &&
-        faceDetectorRef.current
+        handLandmarkerRef.current
       ) {
         setMode('running');
         sendFrames();
@@ -277,7 +284,7 @@ export function useHandTracking() {
       document.removeEventListener('visibilitychange', onVisibility);
       cleanup();
     };
-  }, [cleanup, initVisionTasks, setErrorMessage, setMode, updateFace, updateHands, updateMetrics]);
+  }, [cleanup, initVisionTasks, reset, setErrorMessage, setMode, updateFace, updateHands, updateMetrics, waitForVideoElement]);
 
   return videoRef;
 }

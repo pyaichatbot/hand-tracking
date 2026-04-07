@@ -44,6 +44,10 @@ export interface InteractionState {
   gestureType: GestureType;
   handsInFrame: number;
   isInteracting: boolean;
+  effectMode: 'face-scan' | 'hologram';
+  pinchProgress: number;
+  hologramIntensity: number;
+  anchor: Vector3D;
 }
 
 export type AppMode =
