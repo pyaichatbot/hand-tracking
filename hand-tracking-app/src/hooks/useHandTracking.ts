@@ -2,9 +2,10 @@ import { useEffect, useRef, useCallback } from 'react';
 import {
   FilesetResolver,
   HandLandmarker,
+  FaceDetector,
 } from '@mediapipe/tasks-vision';
 import { useHandTrackingStore } from '../store/handTrackingStore';
-import type { DetectionResult, Hand } from '../types';
+import type { DetectionResult, Face, Hand } from '../types';
 
 const DETECTOR_INIT_TIMEOUT_MS = 10000;
 const CAMERA_START_TIMEOUT_MS = 10000;
@@ -12,6 +13,8 @@ const WASM_ROOT =
   'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.18/wasm';
 const HAND_MODEL_ASSET =
   'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
+const FACE_MODEL_ASSET =
+  'https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite';
 
 export function useHandTracking() {
   const {
@@ -25,6 +28,7 @@ export function useHandTracking() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const handLandmarkerRef = useRef<HandLandmarker | null>(null);
+  const faceDetectorRef = useRef<FaceDetector | null>(null);
   const rafRef = useRef<number>(0);
   const lastDetectionRef = useRef<number>(0);
   const frameCountRef = useRef(0);
@@ -59,6 +63,8 @@ export function useHandTracking() {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
     handLandmarkerRef.current?.close();
     handLandmarkerRef.current = null;
+    faceDetectorRef.current?.close();
+    faceDetectorRef.current = null;
     if (videoRef.current) {
       videoRef.current.pause();
       videoRef.current.srcObject = null;
@@ -85,12 +91,24 @@ export function useHandTracking() {
           minHandPresenceConfidence: 0.6,
         });
 
+        const faceDetector = await FaceDetector.createFromOptions(vision, {
+          baseOptions: {
+            modelAssetPath: FACE_MODEL_ASSET,
+            delegate,
+          },
+          runningMode: 'VIDEO',
+          minDetectionConfidence: 0.55,
+        });
+
         handLandmarkerRef.current = handLandmarker;
+        faceDetectorRef.current = faceDetector;
         return;
       } catch (error) {
         lastError = error;
         handLandmarkerRef.current?.close();
         handLandmarkerRef.current = null;
+        faceDetectorRef.current?.close();
+        faceDetectorRef.current = null;
       }
     }
 
@@ -102,7 +120,7 @@ export function useHandTracking() {
     let processing = false;
 
     const sendFrames = () => {
-      if (cancelled || !videoRef.current || !handLandmarkerRef.current) {
+      if (cancelled || !videoRef.current || !handLandmarkerRef.current || !faceDetectorRef.current) {
         return;
       }
 
@@ -113,6 +131,7 @@ export function useHandTracking() {
           const start = performance.now();
           const timestamp = start;
           const handResults = handLandmarkerRef.current.detectForVideo(videoRef.current, timestamp);
+          const faceResults = faceDetectorRef.current.detectForVideo(videoRef.current, timestamp);
           const latency = performance.now() - start;
 
           if (!fpsWindowStartRef.current) fpsWindowStartRef.current = start;
@@ -137,9 +156,24 @@ export function useHandTracking() {
             confidence: handResults.handedness?.[index]?.[0]?.score ?? 0,
           }));
 
+          let face: Face | null = null;
+          const detection = faceResults.detections?.[0];
+          const bb = detection?.boundingBox;
+          if (bb) {
+            face = {
+              boundingBox: {
+                xMin: bb.originX,
+                yMin: bb.originY,
+                width: bb.width,
+                height: bb.height,
+              },
+              confidence: detection?.categories?.[0]?.score ?? 0,
+            };
+          }
+
           const result: DetectionResult = {
             hands,
-            face: null,
+            face,
             fps: fpsRef.current,
             latency,
             timestamp,

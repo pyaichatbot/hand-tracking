@@ -47,6 +47,8 @@ const initialInteraction: InteractionState = {
   pinchProgress: 0,
   hologramIntensity: 0,
   anchor: { x: 0.5, y: 0.5, z: 0 },
+  powerMode: 'none',
+  powerHand: null,
 };
 
 export const useHandTrackingStore = create<HandTrackingStore>((set) => ({

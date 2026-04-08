@@ -124,11 +124,20 @@ export default function Scene3D({ videoRef }: Scene3DProps) {
       return landmarkToWorld(p.x, p.y);
     };
 
+    const handMidpointWorld = (activeHands: Array<{ landmarks: Array<{x:number;y:number;z:number}> }>) => {
+      if (activeHands.length === 0) return null;
+      if (activeHands.length === 1) return palmWorld(activeHands[0]);
+      const a = palmWorld(activeHands[0]);
+      const b = palmWorld(activeHands[1]);
+      return { wx: (a.wx + b.wx) * 0.5, wy: (a.wy + b.wy) * 0.5 };
+    };
+
     // Physics constants
     const GRAVITY       = 2.0;   // world units/s²
     const HIT_RADIUS    = 0.28;  // world units — paddle hit zone
     const RESTITUTION   = 0.82;  // energy kept on wall bounce
     const SPEED_CAP     = 7.0;   // max ball speed
+    const HAND_STEER    = 3.8;   // how strongly the orb follows current hand midpoint
     const BOUNDS_X      = 1.35;
     const BOUNDS_Y_TOP  =  0.82;
     const BOUNDS_Y_BOT  = -0.82;
@@ -234,6 +243,14 @@ export default function Scene3D({ videoRef }: Scene3DProps) {
 
         // --- Gravity + air damping ---
         ballVelY -= GRAVITY * dt;
+
+        // Add a gentle steering force toward current hands so control feels more responsive.
+        const steerTarget = handMidpointWorld(hands);
+        if (steerTarget) {
+          ballVelX += (steerTarget.wx - ballX) * HAND_STEER * dt;
+          ballVelY += (steerTarget.wy - ballY) * HAND_STEER * dt;
+        }
+
         const damp = Math.pow(0.994, dt * 60);
         ballVelX *= damp;
         ballVelY *= damp;

@@ -12,7 +12,7 @@ function App() {
   usePresentationControls();
 
   return (
-    <div className="relative h-screen w-full overflow-hidden bg-bg">
+    <div id="app-stage" className="relative h-screen w-full overflow-hidden bg-bg">
       <VideoCanvas videoRef={videoRef} />
       <FaceHudOverlay videoRef={videoRef} />
       <Scene3D videoRef={videoRef} />

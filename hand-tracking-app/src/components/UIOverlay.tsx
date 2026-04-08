@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { useHandTrackingStore } from '../store/handTrackingStore';
 
 export default function UIOverlay() {
@@ -7,9 +8,30 @@ export default function UIOverlay() {
   const errorMessage = useHandTrackingStore((s) => s.errorMessage);
   const showDebug = useHandTrackingStore((s) => s.showDebug);
   const interaction = useHandTrackingStore((s) => s.interaction);
+  const face = useHandTrackingStore((s) => s.face);
 
   const isHologram = interaction.effectMode === 'hologram';
   const gesture = interaction.gestureType;
+  const launchPct = Math.round(interaction.pinchProgress * 100);
+  const facePct = Math.round((face?.confidence ?? 0) * 100);
+  const powerLabel = interaction.powerMode === 'fire'
+    ? 'FIRE POWER'
+    : interaction.powerMode === 'web'
+      ? 'WEB POWER'
+      : null;
+  const [snapToast, setSnapToast] = useState<string | null>(null);
+
+  useEffect(() => {
+    const onSnap = (event: Event) => {
+      const custom = event as CustomEvent<{ ok?: boolean }>;
+      const ok = Boolean(custom.detail?.ok);
+      setSnapToast(ok ? 'Screenshot saved' : 'Screenshot failed');
+      window.setTimeout(() => setSnapToast(null), 1400);
+    };
+
+    window.addEventListener('holo:screenshot', onSnap as EventListener);
+    return () => window.removeEventListener('holo:screenshot', onSnap as EventListener);
+  }, []);
 
   return (
     <div className="absolute inset-0 z-30 pointer-events-none">
@@ -37,19 +59,42 @@ export default function UIOverlay() {
           <div className="absolute left-4 top-4 rounded-full border border-neon-green/20 bg-black/20 px-3 py-1 text-[9px] uppercase tracking-[0.38em] text-neon-green/50">
             {isHologram ? 'field protocol' : 'scan protocol'}
           </div>
+          <div className="absolute right-4 top-4 rounded-full border border-neon-green/20 bg-black/20 px-3 py-1 text-[9px] uppercase tracking-[0.28em] text-neon-green/55">
+            {face ? `face lock ${facePct}%` : 'face searching'}
+          </div>
+          <div className="absolute left-1/2 top-[6.5%] -translate-x-1/2 rounded-full border border-neon-green/20 bg-black/20 px-4 py-1 text-[9px] uppercase tracking-[0.3em] text-neon-green/60">
+            Photo: touch thumb + pinky
+          </div>
+          <div className="absolute left-1/2 top-[3%] -translate-x-1/2 rounded-full border border-neon-green/20 bg-black/20 px-4 py-1 text-[9px] uppercase tracking-[0.28em] text-neon-green/58">
+            Fire: all fingertips touch | Web: middle+ring closed
+          </div>
+
+          {powerLabel ? (
+            <div className="absolute left-1/2 top-[18%] -translate-x-1/2 rounded-full border border-[#ffe3a2]/35 bg-black/30 px-5 py-1 text-[10px] uppercase tracking-[0.36em] text-[#ffeab9] shadow-[0_0_24px_rgba(255,160,60,0.25)]">
+              {powerLabel}
+            </div>
+          ) : null}
 
           {isHologram ? (
             <>
               <div className="absolute bottom-8 left-1/2 -translate-x-1/2 rounded-full border border-neon-green/30 bg-black/25 px-8 py-2 text-[10px] uppercase tracking-[0.45em] text-[#b8ffe9] shadow-[0_0_24px_rgba(115,255,210,0.25)]">
                 ANTIGRAVITY FIELD ACTIVE
               </div>
+              <div className="absolute left-1/2 top-[10%] -translate-x-1/2 rounded-full border border-neon-green/20 bg-black/25 px-5 py-1 text-[9px] uppercase tracking-[0.34em] text-neon-green/55">
+                Close: hold fist briefly
+              </div>
               <HudTag className="left-[24%] top-[44%]" text="LFT ZONE" />
               <HudTag className="right-[18%] top-[39%]" text="FLUX ARC" />
             </>
           ) : (
-            <div className="absolute left-1/2 top-[11%] -translate-x-1/2 text-[10px] uppercase tracking-[0.55em] text-neon-green/45">
-              pinch and hold to manifest field
-            </div>
+            <>
+              <div className="absolute left-1/2 top-[10%] -translate-x-1/2 text-[10px] uppercase tracking-[0.48em] text-neon-green/45">
+                launch: pinch and hold or open both hands
+              </div>
+              <div className="absolute left-1/2 top-[14%] -translate-x-1/2 rounded-full border border-neon-green/20 bg-black/20 px-4 py-1 text-[9px] uppercase tracking-[0.28em] text-neon-green/60">
+                Arming {launchPct}%
+              </div>
+            </>
           )}
         </>
       ) : null}
@@ -62,6 +107,12 @@ export default function UIOverlay() {
         <CenterMessage text="Detection failed to initialize. Try reloading." detail={errorMessage} />
       )}
       {mode === 'booting' && <CenterMessage text="Initializing holographic field…" />}
+
+      {snapToast ? (
+        <div className="absolute bottom-20 left-1/2 -translate-x-1/2 rounded-full border border-[#b8ffe9]/30 bg-black/40 px-5 py-2 text-[10px] uppercase tracking-[0.35em] text-[#c8fff1] shadow-[0_0_24px_rgba(120,255,210,0.25)]">
+          {snapToast}
+        </div>
+      ) : null}
     </div>
   );
 }

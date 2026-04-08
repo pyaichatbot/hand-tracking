@@ -48,6 +48,8 @@ export interface InteractionState {
   pinchProgress: number;
   hologramIntensity: number;
   anchor: Vector3D;
+  powerMode: 'none' | 'fire' | 'web';
+  powerHand: 'Left' | 'Right' | null;
 }
 
 export type AppMode =
